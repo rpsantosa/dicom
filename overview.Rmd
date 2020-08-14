@@ -1,0 +1,426 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+#https://www.scielo.br/scielo.php?script=sci_arttext&pid=S1807-59322019000100301 
+
+Computed tomography signs (definition, accuracy, interobserver agreement and differential diagnosis)
+
+A ground-glass opacity (GGO), a reticular pattern, traction bronchiectasis, and honeycombing are among the most common features of ILDs on high-resolution computed tomography (HRCT), and physicians should be familiar with the definitions, accuracies, and differential diagnoses of these features for the diagnostic work-up.
+
+
+
+
+ Frequent signs on physical examination include the presence of bilateral inspiratory crackles (Velcro-like) predominantly in the lower lung zones
+#-------------------------------------------------------------------------
+> ![teste](E:/projects/kaggle/osic-pulmonary-fib/evaluation.png)
+
+Lets start!
+
+```{r warning=FALSE} 
+
+ 
+library(oro.dicom)
+library(tidyr)
+library(plotly)
+
+osis<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression/")
+setwd(osis)
+
+trd<-read.csv("train.csv")
+ted<-read.csv("test.csv")
+
+
+```
+
+
+
+```{r}
+
+head(trd)
+head(ted)
+
+
+```
+
+```{r echo=FALSE, warning=F}
+# how many uniques pacients
+#plot_ly(trd, x = ~SmokingStatus, hoverinfo = "y") #how many smokers
+
+plot_ly(trd, x = ~SmokingStatus, color = ~Sex, colors = "Accent")
+  # meansmokers<- trd %>%
+  #  group_by(Patient) %>%
+  #  summarise(m=mean(Percent), .groups=c("keep"))%>%
+    #select( Age, Sex, SmokingStatus, Patient,m)
+
+
+```
+
+
+```{r  echo=FALSE}
+
+
+  plot_ly(trd, x = ~Age, y = ~Percent) %>%
+      add_markers(color = ~SmokingStatus)
+length(unique(trd$Patient))
+```
+
+
+```{r warning=FALSE} 
+library(plotly)
+library(oro.dicom)
+#library(RNifti)
+p<-file.path("E:/Downloads/osic-pulmonary-fibrosis-progression/test/ID00419637202311204720264")
+
+allslice<-readDICOM(p)
+# p<-file.path("E:/Downloads/osic-pulmonary-fibrosis-progression/test/ID00419637202311204720264/1.dcm")
+# slice<-readDICOM(p)
+# d<-dim(t(slice$img[[1]]))
+# 
+# image(1:d[1], 1:d[2], t(slice$img[[1]]),col=gray(0:64/64))
+length(allslice$hdr)
+hist(allslice$img[[5]])
+d<-dim(allslice$img[[5]])
+image(1:d[2], 1:d[1],t(allslice$img[[5]]),col=gray(0:64/64),xlab = "",ylab="")
+
+
+#remove the black from square
+hist(allslice$img[[5]])
+slicex<-allslice
+white<-slicex$img[[5]] < -1000
+slicex$img[[5]][white]=0
+
+#crop the highest values ( bones hipersinal)
+bones<-slicex$img[[5]] > 100
+slicex$img[[5]][bones]=100
+
+
+pal <- colorRamp(c("black","white"))
+fig <- plot_ly(z = ~slicex$img[[5]], colors = pal)
+fig <- fig %>% add_surface()
+
+fig
+
+extractHeader(allslice$hdr,"SliceLocation")
+extractHeader(allslice$hdr,"ImagePositionPatient",numeric = F)
+
+# ImagePositionPatient
+# devtools::install_github("jonclayden/RNifti")
+
+
+fig <- plot_ly(z = ~allslice$img[[5]], colors = pal) %>%
+add_surface(
+  contours = list(
+    z = list(
+      show=TRUE,
+      usecolormap=TRUE,
+      highlightcolor="#ff0000",
+      project=list(z=TRUE)
+    )
+  )
+)
+fig <- fig %>% layout(
+  scene = list(
+    camera=list(
+      eye = list(x=1.87, y=0.88, z=-0.64)
+    )
+  )
+)
+
+fig
+
+
+```
+
+
+```{r}
+head(ted)
+pc<-unique(trd$Patient)
+plot_ly(trd, x=~Weeks, y=~FVC, type = "scatter", mode= "lines", color = ~ Patient)
+
+
+first<- trd[,"Patient"] %in% "ID00007637202177411956430"
+trd[first,]
+
+
+
+```
+```{r}
+invalids<-"ID00011637202177653955184"   #https://www.kaggle.com/rashmibanthia/corrupt-files
+tdir<-paste0(osis,"/train")
+dd<-lis.files(dir)
+
+
+```
+```{r}
+
+
+#fisrt: lets plot
+lmf<-function(x){
+  tolm<-trd %>%
+        subset(Patient == x) #%>% 
+       # mutate(FVC=FVC + 100*rnorm(length(FVC)))
+
+  fit<-lm(FVC ~ Week, tolm)
+  tolm %>%
+    plot_ly(x = ~ Week) %>% 
+    add_lines(x = ~ Week, y= ~ FVC) %>%
+    add_markers(y= ~ FVC) %>%
+    add_lines(x = ~  Week, y=fitted(fit)) %>%
+    #ifelse ( tolm$Sex[1]=="Male",
+     # add_segments(y = ref$hmax, color="red")  %>%add_segments(x = 4, xend = 4, y = min(Weeks), yend = max(Weeks))
+   #   add_segments(y = ref$hmin)
+  #  ) %>%
+      
+    ##anotatons only, no needed
+   # layout(shapes = list(hline(ref$hmax)))%>%
+    add_annotations(
+      text = with(tolm,paste0(Age[1],"/",Sex[1],"/",SmokingStatus[1])),
+      x = 0.5,
+      y = 1,
+      yref = "paper",
+      xref = "paper",
+      xanchor = "middle",
+      yanchor = "top",
+      showarrow = FALSE,
+      font = list(size = 10)
+    )
+    #layout(xaxis=list(title=with(tolm,paste0(Age[1],"/",Sex[1],"/",SmokingStatus[1]))))
+  #predict(fit, newdata=data.frame(Weeks=c(70,80,90)))
+}
+interv<-list(1:30,31:60,61:90,121:150,151:length(dd))
+pf<-function(x){
+  setwd(osisimg)
+  pname<-paste0(x[1],"-",x[30])
+  dds<-dd[x]
+  plots<-lapply(dds,lmf)
+  p<-subplot(plots, nrows=floor(length(dds)/3),shareX=T, titleX=F)  %>%
+  hide_legend()
+  saveWidget(p, paste0(pname,".html"), selfcontained = F, libdir = "lib")
+}
+# lapply(interv,pf)
+
+```
+
+lets make plots
+```{r}
+  x<-1:20
+  dds<-dd[x]
+  plots<-lapply(dds,lmf)
+  p<-subplot(plots, nrows=floor(length(dds)/3),shareX=T, titleX=F)  %>%
+  hide_legend()#lets look into some hints given by graphics
+  p
+ 
+```
+```{r}
+
+dd<-list.files(osistrain)
+x<-dd[1];index=5
+  path<-file.path(osistrain,x)
+  s<-readDICOM(path)
+  img<-s$img[[index]] 
+  
+  
+  library(coreCT)
+
+# extract metadata and convert raw values to Hounsfield Units
+
+ct.slope <- unique(extractHeader(s$hdr, "RescaleSlope"))
+ct.int   <- unique(extractHeader(s$hdr, "RescaleIntercept")) 
+ss <- lapply(s$img, function(x) x*ct.slope + ct.int)
+# Use coreCT::conv to convert Hounsfield Units to densities and quantify component masses, volumes
+materials <- convert(ss, pixelA = voxDims(path)$pixelArea.mm2, thickness = voxDims(path)$thickness.mm)
+plot(-depth ~ peat.cm3, data = materials, xlab = "Peat volume (cm3; per slice)", ylab = "Depth (cm)")
+materials  
+apply(materials, 2,sum)["air.cm3"]splits<-coreHist(path)
+splits$splits 
+
+```
+
+# Usar o resultado do materials para prever qual deles tem relacao maior com FVC ou slope!
+
+
+```{r}
+library(imager)
+cannyEdges(ss$`E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression/train/ID00007637202177411956430/5.dcm`)
+
+sobel<- function(A){ #} sobel(A : as two dimensional image array)
+	Gx = matrix(c(-1, 0 ,1, -2, 0, 2, -1, 0, 1),ncol = 3,byrow = T)
+	Gy = matrix(c(-1, -2 ,-1, 0, 0, 0, 1, 2, 1),ncol = 3,byrow = T)
+	
+	rows = dim(A)[1]
+	columns =dim(A)[2]
+	mag = zeros(A)
+
+	for i=1:rows-2
+		for j=1:columns-2
+			S1 = sum(sum(Gx.*A(i:i+2,j:j+2)))
+			S2 = sum(sum(Gy.*A(i:i+2,j:j+2)))
+
+			mag(i+1, j+1) = sqrt(S1.^2+S2.^2)
+		end for
+	end for
+	
+	threshold = 70 %varies for application [0 255]
+	output_image = max(mag, threshold)
+	output_image(output_image == round(threshold)) = 0;
+	return output_image
+end function
+```
+```{r}
+library(raster)
+
+## Construct an example matrix
+set.seed(444)
+msize <- 10
+x <- matrix(sample(seq_len(msize), msize^2, replace=TRUE), ncol=msize)
+
+## Convert it to a raster object
+r <- raster(x)
+extent(r) <- extent(c(0, msize, 0, msize) + 0.5)
+
+## Find the maximum value within the 9-cell neighborhood of each cell
+f <- function(X) max(X, na.rm=TRUE)
+ww <- matrix(1, nrow=3, ncol=3) ## Weight matrix for cells in moving window
+localmax <- focal(r, fun=f, w=ww, pad=TRUE, padValue=NA)
+
+## Does each cell have the maximum value in its neighborhood?
+r2 <- r==localmax
+
+## Get x-y coordinates of those cells that are local maxima
+maxXY <- xyFromCell(r2, Which(r2==1, cells=TRUE))
+head(maxXY)
+#       x  y
+# [1,]  8 10
+# [2,] 10 10
+# [3,]  3  9
+# [4,]  4  9
+# [5,]  1  8
+# [6,]  6  8
+
+# Visually inspect the data and the calculated local maxima
+plot(r)   ## Plot of heights
+windows() ## Open a second plotting device
+plot(r2)  ## Plot showing local maxima
+
+#________________________________________________________________________________________
+library(raster)
+
+## Create some example data
+m <- matrix(1, ncol=10, nrow=10)
+diag(m) <- 2
+r <- as(m, "RasterLayer") # Coerce matrix to RasterLayer object
+
+## Apply a function that returns a single value when passed values of cells
+## in a 3-by-3 window surrounding each focal cell 
+rmean <- focal(r, w=matrix(1/9, ncol=3, nrow=3), fun=mean)
+rmedian <- focal(r, w=matrix(1/9, ncol=3, nrow=3), fun=median)
+
+## Plot the results to confirm that this behaves as you'd expect
+par(mfcol=c(1,3))
+plot(r)
+plot(rmean)
+plot(rmedian)
+
+## Coerce results back to a matrix, if you so desire
+mmean <- as(rmean, "matrix")
+
+```
+
+```{r}
+library(oro.dicom)
+library(tidyverse)
+library(plotly)
+library(data.table)
+library(htmlwidgets)
+library(raster)
+osistrain<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression/train")
+
+dd<-list.files(osistrain)
+
+x<-dd[1];index=5 #( 13.dcm)
+path<-file.path(osistrain,x)
+s<-readDICOM(path)
+ct.slope <- unique(extractHeader(s$hdr, "RescaleSlope"))
+ct.int   <- unique(extractHeader(s$hdr, "RescaleIntercept")) 
+ss <- lapply(s$img, function(x) x*ct.slope + ct.int)
+
+img<-raster(ss[[index]])
+white<-img < -2000
+img[white]=NA
+
+plot(img,col= hcl.colors(64,"Grays"),interpolate=F)
+
+fig <- plot_ly(z = ~as.matrix(img), colors = pal) %>%
+add_surface(
+  contours = list(
+    z = list(
+      show=TRUE,
+      usecolormap=TRUE,
+      highlightcolor="#ff0000",
+      project=list(z=TRUE)
+    )
+  )
+)
+fig
+```
+
+```{r}
+rd<-function(x,index){
+  path<-file.path(osistrain,x)
+  s<-readDICOM(path)
+  img<-s$img[[index]] 
+  
+  white<-img < 1
+  img[white]=NA
+  # useful<- img > 1
+  # img1<-img[useful]
+  # d<-dim(img)
+  # p<-image(1:d[2], 1:d[1],t(img),col=gray(0:256/256),xlab = "",ylab="")
+  
+  
+  pal <- colorRamp(c("blue","white"))
+  # axx <- list(
+  #   gridcolor='rgb(255, 255, 255)',
+  #   zerolinecolor='rgb(255, 255, 255)',
+  #   showbackground=TRUE,
+  #   backgroundcolor='rgb(230, 230,230)'
+  # )
+  
+  # fig <- plot_ly(z = ~img,scene=paste0("sc",index))
+  # fig<- fig %>%
+  #   add_surface(
+  #     showscale=FALSE
+  #     
+  #   )
+  
+  fig <- plot_ly(z = ~img, colors = pal,scene=paste0("sc",index))
+  fig<- fig %>%
+    add_surface(
+      showscale=FALSE,
+      contours = list(
+        z = list(
+          show=TRUE,
+          usecolormap=TRUE,
+          highlightcolor="#ff0000",
+          project=list(z=TRUE)
+        )
+      )
+    )
+  # %>%
+  #   layout(
+  #     scene = list(
+  #       xaxis=axx, yaxis=axx, zaxis=axx,
+  #       aspectmode='cube')
+  #   )
+  return(fig)
+}
+```
+
+# now a visualization
+
+```{r}
+
+```
+
