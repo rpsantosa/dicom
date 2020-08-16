@@ -102,6 +102,10 @@ library(doParallel)
 library(oro.dicom)
 
 # extract metadata and convert raw values to Hounsfield Units
+x<-dd[1]
+
+path<-file.path(osistrain,x)
+s<-readDICOM(path)
 
 ct.slope <- unique(extractHeader(s$hdr, "RescaleSlope"))
 ct.int   <- unique(extractHeader(s$hdr, "RescaleIntercept")) 
