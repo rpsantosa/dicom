@@ -1,0 +1,511 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Initiating
+
+```{r message=FALSE, warning=FALSE}
+library(oro.dicom)
+library(tidyverse)
+library(plotly)
+library(data.table)
+library(htmlwidgets)
+library(coreCT)
+library(magick)
+library(raster)
+library(doParallel)
+library(oro.dicom)
+library(magick)
+library(imager)
+ref<-1000*data.frame(hmax=(4.64 +0.77),hmin=(4.64 -0.77), mmax=(3.14 + .65), mmin =(3.14- .65 ))
+
+osis<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression")
+osistrain<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression/train")
+osistest<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression/test")
+osisimg<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/img")
+
+#setwd(osis)
+
+#invalids<-"ID00011637202177653955184"   #https://www.kaggle.com/rashmibanthia/corrupt-files
+
+trd<-read.csv(file.path(osis,"train.csv"))  %>% dplyr::rename(Week=Weeks)
+#subset(Patient!= invalids)
+ted<-read.csv(file.path(osis,"test.csv")) %>% dplyr::rename(Week=Weeks)
+invalids<-c("ID00011637202177653955184","ID00052637202186188008618", "ID00128637202219474716089","ID00132637202222178761324")
+
+dd<-list.files(osistrain)
+dd <- setdiff(dd,invalids)
+```
+
+
+
+*** load dicom img and convert to HU units
+
+```{r message=FALSE, warning=FALSE}
+x=dd[1]
+
+read_x<-function(x,thr){
+  path<-file.path(osistrain,x)
+    s<-readDICOM(path)
+    #img<-s$img[[index]] 
+    
+    ct.slope <- unique(extractHeader(s$hdr, "RescaleSlope"))
+    ct.int   <- unique(extractHeader(s$hdr, "RescaleIntercept")) 
+    Ct.n<- extractHeader(s$hdr, "InstanceNumber")
+    ss <- lapply(s$img, function(x) x*ct.slope + ct.int) 
+   # ff<-function(x){x [ x < -2000 ]<- NA;return(x)}
+    # trim background
+    ss<-  lapply(ss,function(x){x[x< thr]<-F;return(x)})
+    #reorder:
+    fo<-function(i){
+      index<-which(Ct.n ==i)
+      return(ss[[index]])
+    }
+    so<-lapply(1:length(ss),fo)
+    return(so)
+}
+so<-read_x(x,-2000)
+    
+```
+**imager
+
+```{r}
+l.im<-lapply(so[1:3],as.cimg) ; l.im<-lapply(l.im, imrotate,(angle = -90))
+img<-as.imlist(l.im) ; names(img)<-NULL
+par(mfrow=c(1,3))
+plot(img,axes = F)
+
+```
+
+
+```{r}
+img<-so[[13]]
+
+
+
+im<-as.cimg( img ) %>% imrotate(angle=-90)
+plot(im)
+```
+
+*** more imager processing
+
+
+```{r}
+px<-(im < - 600 & im > -860 )
+
+plot(px)
+```
+
+
+
+
+```{r}
+plot(im)
+highlight(px)
+
+
+```
+```{r}
+plot(im)
+px.flood(im,78,296,sigma=.21) %>% highlight
+
+```
+
+
+
+
+
+
+
+```{r}
+
+
+pal <- colorRamp(c("black","white"))
+
+fig <- plot_ly(z = ~ so[[7]], colors = pal) %>%
+add_surface(
+  contours = list(
+    z = list(
+      show=TRUE,
+      usecolormap=TRUE,
+      highlightcolor="#ff0000",
+      project=list(z=TRUE)
+    )
+  )
+)
+fig <- fig %>% layout(
+  scene = list(
+    camera=list(
+      eye = list(x=1.87, y=0.88, z=-0.64)
+    )
+  )
+)
+
+fig
+
+```
+
+** new threshould to focus on lungs
+
+```{r}
+sfail<-read_x(x,-600)
+pal <- colorRamp(c("black","white"))
+
+fig <- plot_ly(z = ~ sfail[[7]], colors = pal) %>%
+add_surface(
+  contours = list(
+    z = list(
+      show=TRUE,
+      usecolormap=TRUE,
+      highlightcolor="#ff0000",
+      project=list(z=TRUE)
+    )
+  )
+)
+fig <- fig %>% layout(
+  scene = list(
+    camera=list(
+      eye = list(x=1.87, y=0.88, z=-0.64)
+    )
+  )
+)
+
+fig
+```
+
+It has cut most of the lungs...that is below -800
+
+
+
+ **** lets start lung segmentation
+linear model:
+
+```{r}
+d <- as.data.frame(im)
+##Subsamble, fit a linear model
+m <- sample_n(d,1e4) %>% lm(value ~ x*y,data=.) 
+##Correct by removing the trend
+im.c <- im-predict(m,d)
+out <- threshold(im.c)
+plot(out)
+
+```
+
+
+
+```{r}
+ out<-threshold(im,"auto")
+out <- clean(out,5) %>% imager::fill(7)
+plot(im)
+highlight(out)
+
+
+```
+
+```{r}
+imo<-im
+imo[ out]<- NA
+plot(imo)
+```
+
+```{r}
+ fig1<-plot_ly(
+            z = so[[7]],
+            #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+            colors=pal,
+            type = "heatmapgl"
+            ) %>%
+  layout(autosize=F)
+
+
+ fig2<-plot_ly(
+            z = so[[13]],
+            #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+            colors=pal,
+            type = "heatmapgl"
+            ) %>%
+  layout(autosize=F)
+ 
+ fig3<-plot_ly(
+            z = so[[18]],
+            #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+            colors=pal,
+            type = "heatmapgl"
+            ) %>%
+  layout(autosize=F)
+fig1
+fig2
+fig3
+
+```
+
+
+
+```{r}
+a<-kmeans(out,2)
+colors<- as.cimg(a$centers[a$cluster,])
+plot(out)
+px<-colors==1
+highlight(px * out)
+
+```
+
+
+```{r}
+#im<-as.cimg(so[[7]]) %>% imrotate(-90)
+
+
+detect.edges <- function(im,sigma=1)
+    {
+        isoblur(im,sigma) %>% imgradient("xy") %>% enorm %>% imsplit("c") %>% add
+    }
+
+edges <- detect.edges(im,2) %>% sqrt 
+plot(edges)
+pmap <- 1/(1+edges) #Priority inv. proportional to gradient magnitude
+plot(pmap,main="Priority map") #Nice metal plate effect! 
+
+
+```
+
+```{r}
+seeds <- imfill(dim=dim(pmap)) #Empty image
+seeds[170,233,1,1] <- 1 #Background pixel 
+seeds[36,255,1,1] <- 2 #Foreground pixel
+
+wt1 <- watershed(seeds,pmap)
+plot(wt1,main="Watershed segmentation")
+
+
+
+
+
+```
+the other lung
+
+```{r}
+seeds <- imfill(dim=dim(pmap)) #Empty image
+seeds[355,247,1,1] <- 1 #Background pixel 
+seeds[56,252,1,1] <- 2 #Foreground pixel
+
+wt2 <- watershed(seeds,pmap)
+plot(wt2,main="Watershed segmentation")
+
+
+```
+now, both
+
+```{r}
+
+wt <- wt1 + wt2
+
+plot(wt)
+
+
+```
+
+```{r}
+wt[wt==3]<-T
+wt[wt==4]<-NA
+lungs<-wt * im
+plot(lungs)
+
+
+```
+
+
+
+
+Lets automate the choose for those pixels to watershed
+
+Lungs point
+
+```{r}
+ylim<-floor(0.4 * 512):floor(0.6 *512)
+xlim1<-floor(0.2 * 512):floor(0.3 * 512); xlim2<-floor( 0.6 *512) :floor( 0.8 * 512)
+xlim<-c(xlim1,xlim2)
+ima<-im[xlim,ylim,1,1]
+out<-matrix(rep(F,512^2 ),ncol=512)
+
+
+###lung d
+out[xlim1,ylim]<-T
+out<-as.cimg(out)
+plot(im)
+highlight(out)
+pmatrix<-out * im
+pr<-which(pmatrix == min(pmatrix), arr.ind = TRUE)[1,]
+
+####lung e
+out[xlim2,ylim]<-T
+out<-as.cimg(out)
+plot(im)
+highlight(out)
+pmatrix<-out * im
+pl<-which(pmatrix == min(pmatrix), arr.ind = TRUE)[1,]
+
+
+```
+Everywere
+
+
+```{r}
+
+ylim<-floor(0.7 * 512):floor(0.75 *512)
+xlim<-c(floor(0.4 * 512):floor(0.6 * 512))
+ima<-im[xlim,ylim,1,1]
+out<-matrix(rep(F,512^2 ),ncol=512)
+out[xlim,ylim]<-T
+out<-as.cimg(out)
+plot(im)
+highlight(out)
+pmatrix<-out * im
+p2<-which(pmatrix == min(pmatrix), arr.ind = TRUE)[1,]
+
+```
+Everything together
+
+```{r}
+detect.edges <- function(im,sigma=1)
+    {
+        isoblur(im,sigma) %>% imgradient("xy") %>% enorm %>% imsplit("c") %>% add
+    }
+
+edges <- detect.edges(im,2) %>% sqrt 
+pmap <- 1/(1+edges) #Priority inv. proportional to gradient magnitude
+seeds <- imfill(dim=dim(pmap)) #Empty image
+seeds[pr[1],pr[2],pr[3],pr[4]] <- 1 #Background pixel 
+seeds[p2[1],p2[2],p2[3],p2[4]] <- 2 #Foreground pixel
+
+wt1 <- watershed(seeds,pmap)
+plot(wt1,main="Watershed segmentation")
+
+
+###
+seeds[pl[1],pl[2],pl[3],pl[4]] <- 1 #Background pixel 
+seeds[p2[1],p2[2],p2[3],p2[4]] <- 2 #Foreground pixel
+
+wt2 <- watershed(seeds,pmap)
+plot(wt2,main="Watershed segmentation")
+
+
+
+
+```
+finally, a function
+
+```{r}
+masks<-function(im1){
+
+  im<- im1 %>%
+    as.cimg %>%
+    imrotate(angle = -90)
+
+  
+  ylim<-floor(0.4 * 512):floor(0.6 *512)
+  xlim1<-floor(0.2 * 512):floor(0.3 * 512); xlim2<-floor( 0.6 *512) :floor( 0.8 * 512)
+  xlim<-c(xlim1,xlim2)
+  ima<-im[xlim,ylim,1,1]
+  out<-matrix(rep(F,512^2 ),ncol=512)
+  ###lung d
+  out[xlim1,ylim]<-T
+  out<-as.cimg(out)
+  #plot(im)
+  #highlight(out)
+  pmatrix<-out * im
+  pr<-which(pmatrix == min(pmatrix), arr.ind = TRUE)[1,]
+  
+  ####lung e
+  out[xlim2,ylim]<-T
+  out<-as.cimg(out)
+  #plot(im)
+  #highlight(out)
+  pmatrix<-out * im
+  pl<-which(pmatrix == min(pmatrix), arr.ind = TRUE)[1,]
+
+  
+  
+  
+  
+  ylim<-floor(0.7 * 512):floor(0.75 *512)
+  xlim<-c(floor(0.4 * 512):floor(0.6 * 512))
+  ima<-im[xlim,ylim,1,1]
+  out<-matrix(rep(F,512^2 ),ncol=512)
+  out[xlim,ylim]<-T
+  out<-as.cimg(out)
+  #plot(im)
+  #highlight(out)
+  pmatrix<-out * im
+  p2<-which(pmatrix == min(pmatrix), arr.ind = TRUE)[1,]
+
+
+
+  detect.edges <- function(im,sigma=1)
+      {
+          isoblur(im,sigma) %>% imgradient("xy") %>% enorm %>% imsplit("c") %>% add
+      }
+  
+  edges <- detect.edges(im,2) %>% sqrt 
+  pmap <- 1/(1+edges) #Priority inv. proportional to gradient magnitude
+  seeds <- imfill(dim=dim(pmap)) #Empty image
+  seeds[pr[1],pr[2],pr[3],pr[4]] <- 1 #Background pixel 
+  seeds[p2[1],p2[2],p2[3],p2[4]] <- 2 #Foreground pixel
+  
+  wt1 <- watershed(seeds,pmap)
+  #plot(wt1,main="Watershed segmentation")
+  
+  
+  ###
+  seeds[pl[1],pl[2],pl[3],pl[4]] <- 1 #Background pixel 
+  seeds[p2[1],p2[2],p2[3],p2[4]] <- 2 #Foreground pixel
+  
+  wt2 <- watershed(seeds,pmap)
+  #plot(wt2,main="Watershed segmentation")
+    wt1[wt1==1]<-T;wt1[wt1!=1]<-F
+        wt2[wt2==1]<-T;wt2[wt2!=1]<-F
+   wt<- wt1 | wt2
+
+  
+  # wt<-wt1+wt2
+  # wt[wt==3]<-T
+  # wt[wt==4]<-NA
+  lungs<-wt * im
+  return(lungs)
+  #plot(lungs)
+
+}
+
+
+```
+
+loop over all imgs from this patient
+
+```{r}
+loopd<-function(so){
+ a<- so%>%
+    map(masks) %>%
+   map(plot)
+}
+
+
+```
+
+
+
+CoreCT
+```{r}
+et<-function(tag){
+  a1<-extractHeader(s$hdr,tag ,numeric=FALSE) %>%
+    as.list %>%
+    str_split(pattern =" ")
+  a2<-lapply(a1,as.numeric)
+  return(a2)
+}
+st<-extractHeader(a$hdr,"SliceThickness")
+ps<-et("PixelSpacing")
+#materials <- convert(HU_426, pixelA = 0.0596)
+
+```
+
+

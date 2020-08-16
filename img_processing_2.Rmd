@@ -1,0 +1,41 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+To the other RMD do not be too heavy
+
+printing some files
+
+```{r}
+
+
+so<-read_x(x,-2000)
+
+
+lmf<-function(x){
+   plot_ly(
+            z = so[[x]],
+            #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+            colors=pal,
+            type = "heatmapgl"
+            ) %>%
+    layout(xaxis=list(scaleanchor: "x"))
+}
+
+
+
+pf<-function(interv,i){
+  #setwd(osisimg)
+  pname<-paste0(osisimg,"/" ,dd[i])
+  plots<-lapply(interv,lmf)
+ # p<-subplot(plots, nrows=floor(length(interv)/3),shareX=T, titleX=F)  %>%
+  p<-subplot(plots, nrows=3,shareX=T, titleX=F)  %>%
+  hide_legend()
+  saveWidget(p, paste0(pname,".html"), selfcontained = F, libdir = "lib")
+}
+
+interv=1:5
+pf(interv,1)
+```
+
