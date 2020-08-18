@@ -1,0 +1,499 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+T
+```{r}
+library(oro.dicom)
+library(tidyverse)
+library(plotly)
+library(data.table)
+library(htmlwidgets)
+library(coreCT)
+library(magick)
+library(raster)
+library(doParallel)
+library(oro.dicom)
+library(magick)
+library(imager)
+ref<-1000*data.frame(hmax=(4.64 +0.77),hmin=(4.64 -0.77), mmax=(3.14 + .65), mmin =(3.14- .65 ))
+
+osis<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression")
+osistrain<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression/train")
+osistest<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression/test")
+osisimg<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/img")
+
+#setwd(osis)
+
+#invalids<-"ID00011637202177653955184"   #https://www.kaggle.com/rashmibanthia/corrupt-files
+
+trd<-read.csv(file.path(osis,"train.csv"))  %>% dplyr::rename(Week=Weeks)
+#subset(Patient!= invalids)
+ted<-read.csv(file.path(osis,"test.csv")) %>% dplyr::rename(Week=Weeks)
+invalids<-c("ID00011637202177653955184","ID00052637202186188008618", "ID00128637202219474716089","ID00132637202222178761324")
+
+dd<-list.files(osistrain)
+dd <- setdiff(dd,invalids)
+x=dd[1]
+
+
+read_x<-function(x,thr){
+  path<-file.path(osistrain,x)
+    s<-readDICOM(path)
+    #img<-s$img[[index]] 
+    
+    ct.slope <- unique(extractHeader(s$hdr, "RescaleSlope"))
+    ct.int   <- unique(extractHeader(s$hdr, "RescaleIntercept")) 
+    Ct.n<- extractHeader(s$hdr, "InstanceNumber")
+    ss <- lapply(s$img, function(x) x*ct.slope + ct.int) 
+   # ff<-function(x){x [ x < -2000 ]<- NA;return(x)}
+    # trim background
+    ss<-  lapply(ss,function(x){x[x< thr]<-F;return(x)})
+    #reorder:
+    fo<-function(i){
+      index<-which(Ct.n ==i)
+      return(ss[[index]])
+    }
+    so<-lapply(1:length(ss),fo)
+    return(so)
+}
+#so<-read_x(x,-2000)
+
+
+
+```
+
+```{r}
+x<-dd[1]
+so<-read_x(x,-2000)
+img<-so[[18]]
+
+im<-as.cimg( img ) %>% imrotate(angle=-90)
+plot(im)
+
+
+```
+
+```{r}
+
+d <- as.data.frame(im)
+##Subsamble, fit a linear model
+#m <- sample_n(d,1e4) %>% lm(value ~ x*y,data=.) 
+m <- sample_n(d,1e4) %>% lm(value ~ x*y,data=.) 
+
+##Correct by removing the trend
+im.c <- im-predict(m,d)
+out <- threshold(im.c)
+plot(out)
+b<- !out * im
+
+```
+now, with all img
+
+
+```{r}
+d <- as.data.frame(im)
+
+m <- d %>% lm(value ~ x*y,data=.) 
+
+##Correct by removing the trend
+im.c <- im-predict(m,d)
+out <- threshold(im.c)
+
+layout(t(1:2))
+plot(out)
+plot(im)
+```
+```{r}
+pp<-function(x){
+img<-so[[x]] %>% 
+  as.cimg %>%
+  imrotate(angle=-90)
+  plot(threshold(img),axes=F)
+  plot(img,axes=F)
+}
+par(mar = c(0,0,0,0))
+#par(mai = c(0,0,0,0))
+layout(matrix(1:24,ncol=6, byrow=F))
+map(1:12,pp)
+
+
+```
+
+```{r}
+par(mar = c(0,0,0,0))
+#par(mai = c(0,0,0,0))
+layout(matrix(1:24,ncol=6, byrow=T))
+map(1:12,pp)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+par(mar = c(0,0,0,0))
+#par(mai = c(0,0,0,0))
+layout(matrix(1:24,ncol=6, byrow=T))
+map(13:24,pp)
+
+```
+```{r}
+ a<-data.table(so=so[5:10],i=1:length(so[5:10]))
+ fig<-a %>% plot_ly(
+            z = ~ so,
+            #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+            colors=pal,
+            type = "heatmapgl",
+            frame = ~ i
+            ) %>%
+     animation_slider()
+
+
+
+```
+
+```{r}
+ plot_ly(
+            z = ~ so[[1]],
+            #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+            colors=pal,
+            type = "heatmapgl"
+            #frame = ~ i
+            ) 
+```
+
+
+Now, i can set the bondary of the bones and elminate most of artefacts around
+
+```{r}
+# 
+# ima <- as.cimg(function(x,y) sin(x/5)+cos(x/4)*sin(y/2),128,128)
+# ff <- FFT(ima)
+# plot(ff$real,main="Real part of the transform")
+# 
+# 
+# 
+# ff<-FFT(im)
+# sqrt(ff$real^2+ff$imag^2) %>% plot(main="Power spectrum")
+# 
+# 
+# plot(im)
+# px <- (isoblur(im,4)  < .1 )
+# highlight(px)
+# 
+# 
+px <- (isoblur(im,4)  > .5 )
+sp <- split_connected(px) #returns an imlist
+plot(sp[1:4])
+boundary(px) %>% plot
+
+
+
+plot(im)
+highlight(px)
+#Grow by 5 pixels
+grow(px,5) %>% highlight(col="green")
+#Shrink by 5 pixels
+shrink(px,5) %>% highlight(col="blue")
+
+#Compute bounding box
+bbox(px) %>% highlight(col="yellow")
+
+
+box<-bbox(px)
+ima<-im
+ima[!box]<-F
+th<-threshold(ima)
+plot(th)
+#ima[box]<-NA
+#plot(ima)
+select_box<-function(x){
+  px <- (isoblur(x,4)  > .5 ) %>% bbox
+  x[!px]<-0
+  return(x)
+}
+
+
+```
+```{r}
+skeleton<-im * px
+pxn <- (isoblur(im,4)  > .5 )
+
+nskeleton <- im * (!px)
+
+fig1<-plot_ly(
+            z = t(as.matrix(skeleton)),
+            colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+            #colors="Greys",
+            type = "heatmapgl"
+            )
+fig2<-plot_ly(
+            z = t(as.matrix(nskeleton)),
+            colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+            #colors="Greys",
+            type = "heatmapgl"
+            )
+layout(t(1:2))
+fig1
+fig2
+a<-threshold(nskeleton)
+plot(a)
+```
+
+
+```{r}
+a<-imgradient(nskeleton)
+layout(t(1:2))
+plot(a$x);plot(a$y)
+
+```
+```{r}
+layout(t(1:2))
+ plot(threshold(a$x))
+ plot(threshold(a$y))
+```
+
+Now, trying to applyu Fourier Transform
+first, a very improvment over https://dahtah.github.io/imager/imager.html
+
+```{r}
+ima <- as.cimg(function(x,y) sin(x/5)+cos(x/4)*sin(y/2),128,128)
+ff <- FFT(ima)
+ffp <- sqrt(ff$real^2+ff$imag^2) 
+s<-scale(as.matrix(ffp)) %>% as.cimg
+plot(s)
+
+```
+
+
+```{r}
+ff <- FFT(im)
+ffp <- sqrt(ff$real^2+ff$imag^2) 
+summary(ffp)
+s<-scale(as.matrix(ffp)) %>% as.cimg
+summary(s)
+plot(s)
+
+```
+# filter low band
+
+```{r}
+ff <- FFT(im)
+ffp <- sqrt(ff$real^2+ff$imag^2) 
+summary(ffp)
+s<-scale(as.matrix(ffp)) %>% as.cimg
+ff$real[s<0]<-F   #as.cimg (get.locations(s,function(x)x < 0))
+ff$imag[s<0]<-F
+fim<-FFT(ff$real,ff$imag,inverse = T)
+layout(t(1:2))
+plot(im)
+plot(fim$real)
+par(mar = c(0,0,0,0))
+layout(t(1:2))
+plot(threshold(im))
+plot(threshold(fim$real))
+```
+very low difference
+
+
+Lets denoise and etc:
+```{r}
+ima<-select_box(im)
+gr <- imgradient(ima,"xy")
+plot(gr,layout="row")
+
+```
+
+```{r}
+mag <- with(gr,sqrt(x^2+y^2))
+plot(mag)
+
+
+```
+The Canny edge detector is essentially a cleaned-up version of the above picture.
+
+The gradient angle determines the local orientation of image edges:
+
+```{r}
+
+
+ang <- with(gr,atan2(y,x))
+plot(ang)
+```
+```{r}
+cs <- scales::gradient_n_pal(c("red","darkblue","lightblue","red"),c(-pi,-pi/2,pi/2,pi))
+par(mar = c(0,0,0,0))
+layout(t(1:2))
+plot(ang,colourscale=cs,rescale=FALSE)
+threshold(mag) %>% plot
+
+```
+A gradient( parentesis )
+
+```{r}
+gradfield <- function(im,subs=4)
+    {
+        gr <- imgradient(im,"xy")
+        names(gr) <- c("dx","dy")
+        dgr <- as.data.frame(gr) %>% tidyr::spread(im,value)
+        dgr <- dplyr::filter(dgr,(x %% subs) ==0,(y %% subs) == 0)
+        dgr <- dplyr::mutate(dgr,mag=sqrt(dx^2+dy^2), #Gradient magnitude
+                                 dxs=dx/mag,dys=dy/mag,#Scale every vector to unit size
+                                 xend = x + 2*dxs,yend = y +2*dys) 
+        p <- as.data.frame(im) %>% ggplot(aes(x,y))+geom_raster(aes(fill=value))
+        p <- p+geom_segment(data=dgr,aes(xend=xend,yend=yend,alpha=mag),arrow = arrow(length = unit(0.01, "npc")),col="red")
+        p+scale_y_reverse()+scale_fill_continuous(low="black",high="white")
+    }
+
+gradfield(ima,6)
+
+```
+more denoising
+
+
+
+```{r}
+#Going along the (normalised) gradient
+#Xc(im) is an image containing the x coordinates of the image
+nX <- Xc(im) + gr$x/mag 
+nY <- Yc(im) + gr$y/mag
+#nX and nY are not integer values, so we can't use them directly as indices.
+#We can use interpolation, though:
+val.fwd <- interp(mag,data.frame(x=as.vector(nX),y=as.vector(nY)))
+nX <- Xc(im) - gr$x/mag 
+nY <- Yc(im) - gr$y/mag
+val.bwd <- interp(mag,data.frame(x=as.vector(nX),y=as.vector(nY)))
+
+throw <- (mag < val.bwd) | (mag < val.fwd)
+mag[throw] <- 0
+plot(mag)
+
+
+```
+
+```{r}
+#strong threshold
+t2 <- quantile(mag,.96)
+#weak threshold 
+t1 <- quantile(mag,.90)
+layout(t(1:2))
+
+strong <- mag>t2
+plot(strong,main="Initial set of strong edges")
+weak <- mag %inr% c(t1,t2)
+plot(weak,main="Initial set of weak edges")
+```
+histerese rescue
+
+```{r}
+hyst.loop <- function(strong,weak)
+    {
+        #We make the queue a list so that it can grow or shrink relatively fast
+        queue <- which(strong==1) %>% as.list
+        max.x <- width(strong)
+        max.y <- height(strong)
+        while (length(queue)>0)
+            {
+                ind <- queue[[1]]
+                #get (x,y) coordinates of the current point
+                cc <- coord.index(strong,ind)
+                #explore the neighbourhood
+                for (nx in (cc$x+c(-1,0,1)))
+                {
+                    for (ny in (cc$y+c(-1,0,1)))
+                    {
+                        #we have to mind boundary conditions
+                        if (nx > 0 && nx <= max.x && ny > 0 && ny <= max.y)
+                        {
+                            if (at(weak,nx,ny)==TRUE)
+                            {
+                                at(weak,nx,ny) <- FALSE
+                                at(strong,nx,ny) <- TRUE
+                                queue[[length(queue)+1]] <- index.coord(strong,data.frame(x=nx,y=ny))
+                            }
+                        }
+                    }
+                }
+                queue[[1]] <- NULL
+            }
+        strong
+    }
+
+canny <- hyst.loop(strong,weak)
+plot(canny,main="Edges after hystereris")
+
+
+```
+# morphological dilation
+
+```{r}
+
+px <- imnoise(100,100) > 1
+layout(t(1:2))
+plot(px,"Original")
+plot(grow(px,3),"Dilated Set")
+
+
+```
+```{r}
+overlap <- grow(strong,3) & weak 
+strong.new <- strong | overlap
+plot(strong.new,main="New set of strong edges")
+delta <- sum(strong.new)-sum(strong)
+delta
+
+```
+
+```{r}
+fp<-FixedPoint(f <- function(x) x/2,3)
+
+
+expandStrong <- function(ws)
+    {
+        overlap <- grow(ws$strong,3) & ws$weak
+        ws$strong[overlap] <- TRUE
+        ws$weak[overlap] <- FALSE
+        ws
+    }
+
+
+#hystFP is a new function that will call expandStrong repeatedly until
+#the weak and strong sets don't change anymore
+out <- list(strong=strong,weak=weak) 
+hystFP <- FixedPoint(expandStrong,Inputs=out)
+
+#Call hystFP
+
+
+```
+
+didnt worked
+
+
+but now, with flood fill
+
+```{r}
+pxs <- split_connected(strong,high_connectivity=TRUE)
+length(pxs)
+plot(strong)
+library(purrr)
+map_df(pxs,~ where(.)[1,]) %$% points(x,y,col="red")
+
+
+```
+For the bucket fill trick to work we need to be able to spread the value of strong pixels to their weak neighbour (but not elsewhere). We assign different values to strong and weak pixels:
+
+
+```{r}
+
+v <- as.cimg(strong)
+v[weak==1] <- .9 #Strong pixels have value 1, weak .9, and the rest are 0.
+```
+Finally we need to go through the list of seed pixels, and apply bucket fill every time. We could write a loop, but to keep with the functional style we have used so far, we’ll cast this operation as a fold, using reduce from the purrr package. reduce takes a function of two arguments (an accumulator and an item), and reduces a list to a single item by accumulating. It’s best illustrated by example:
+
+```{r}
+library(purrr)
+add <- function(l) reduce(l,function(acc,item) acc+item,.init=0)
+add(1:3) #equals sum(1:3)
+
+```
+

@@ -108,7 +108,7 @@ highlight(px)
 ```
 ```{r}
 plot(im)
-px.flood(im,78,296,sigma=.21) %>% highlight
+px.flood(im,78,296,sigma=.001) %>% highlight
 
 ```
 
@@ -250,6 +250,13 @@ px<-colors==1
 highlight(px * out)
 
 ```
+
+```{r}
+plot(out)
+px<-colors==2
+highlight(px * out)
+```
+
 
 
 ```{r}
@@ -490,8 +497,14 @@ loopd<-function(so){
 
 
 ```
+coreCT
 
+HU units considered
 
+```{r}
+a<-coreHist("core_426")
+a$split
+```
 
 CoreCT
 ```{r}
