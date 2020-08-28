@@ -36,6 +36,8 @@ invalids<-c("ID00011637202177653955184","ID00052637202186188008618", "ID00128637
 
 dd<-list.files(osistrain)
 dd <- setdiff(dd,invalids)
+pal <- colorRamp(c("black","white"))
+
 ```
 
 
@@ -45,7 +47,7 @@ dd <- setdiff(dd,invalids)
 ```{r message=FALSE, warning=FALSE}
 x=dd[1]
 
-read_x<-function(x,thr){
+read_x<-function(x,thr=-2000){
   path<-file.path(osistrain,x)
     s<-readDICOM(path)
     #img<-s$img[[index]] 
@@ -53,27 +55,36 @@ read_x<-function(x,thr){
     ct.slope <- unique(extractHeader(s$hdr, "RescaleSlope"))
     ct.int   <- unique(extractHeader(s$hdr, "RescaleIntercept")) 
     Ct.n<- extractHeader(s$hdr, "InstanceNumber")
-    ss <- lapply(s$img, function(x) x*ct.slope + ct.int) 
+    s1 <- lapply(s$img, function(x) x*ct.slope + ct.int) 
    # ff<-function(x){x [ x < -2000 ]<- NA;return(x)}
     # trim background
-    ss<-  lapply(ss,function(x){x[x< thr]<-F;return(x)})
+    s2<-  lapply(s1,function(y){y[y< thr]<-F;return(y)})
     #reorder:
     fo<-function(i){
       index<-which(Ct.n ==i)
-      return(ss[[index]])
+      return(s2[[index]])
     }
-    so<-lapply(1:length(ss),fo)
+    so<-lapply(1:length(s2),fo)
     return(so)
 }
-so<-read_x(x,-2000)
+so<-read_x(x,thr=-2000)
     
 ```
 **imager
 
 ```{r}
-l.im<-lapply(so[1:3],as.cimg) ; l.im<-lapply(l.im, imrotate,(angle = -90))
-img<-as.imlist(l.im) ; names(img)<-NULL
-par(mfrow=c(1,3))
+
+xx<-function(x){
+  out<-as.cimg(x) %>% imrotate(angle = -90)
+  return(out)
+}
+l.im<- lapply(so,xx)
+
+img<-as.imlist(l.im)
+
+#layout(matrix(1:30,ncol = 3,byrow = T))
+par(mar = c(0,0,0,0),mai=c(0,0,0,0))
+
 plot(img,axes = F)
 
 ```
@@ -196,7 +207,7 @@ plot(out)
 
 ```{r}
  out<-threshold(im,"auto")
-out <- clean(out,5) %>% imager::fill(7)
+out <- clean(out,10) %>%  imager::fill(7)
 plot(im)
 highlight(out)
 
@@ -211,29 +222,26 @@ plot(imo)
 
 ```{r}
  fig1<-plot_ly(
-            z = so[[7]],
+            z = as.matrix( so[[7]] %>% imrotate(90)),
             #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
             colors=pal,
             type = "heatmapgl"
-            ) %>%
-  layout(autosize=F)
+            ) 
 
 
  fig2<-plot_ly(
-            z = so[[13]],
+            z = as.matrix(so[[13]]%>% imrotate(90)),
             #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
             colors=pal,
             type = "heatmapgl"
-            ) %>%
-  layout(autosize=F)
+            ) 
  
  fig3<-plot_ly(
-            z = so[[18]],
+            z = as.matrix(so[[18]]%>% imrotate(90)),
             #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
             colors=pal,
             type = "heatmapgl"
-            ) %>%
-  layout(autosize=F)
+            ) 
 fig1
 fig2
 fig3
@@ -243,11 +251,21 @@ fig3
 
 
 ```{r}
+layout(t(1:2))
+out<-threshold(im)
 a<-kmeans(out,2)
 colors<- as.cimg(a$centers[a$cluster,])
 plot(out)
 px<-colors==1
 highlight(px * out)
+
+plot(out)
+px<-colors==2
+highlight(px * out)
+
+
+
+
 
 ```
 
@@ -263,9 +281,9 @@ highlight(px * out)
 #im<-as.cimg(so[[7]]) %>% imrotate(-90)
 
 
-detect.edges <- function(im,sigma=1)
+detect.edges <- function(im,sigma=2)
     {
-        isoblur(im,sigma) %>% imgradient("xy") %>% enorm %>% imsplit("c") %>% add
+        isoblur(im,sigma) %>% imgradient("xy") %>% enorm 
     }
 
 edges <- detect.edges(im,2) %>% sqrt 
@@ -275,7 +293,7 @@ plot(pmap,main="Priority map") #Nice metal plate effect!
 
 
 ```
-
+Will be a little harder to find a priority map that targets whole lung, that what we want. 
 ```{r}
 seeds <- imfill(dim=dim(pmap)) #Empty image
 seeds[170,233,1,1] <- 1 #Background pixel 

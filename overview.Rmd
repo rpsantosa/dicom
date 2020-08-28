@@ -1,6 +1,8 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 #https://www.scielo.br/scielo.php?script=sci_arttext&pid=S1807-59322019000100301 
@@ -24,9 +26,9 @@ Lets start!
 library(oro.dicom)
 library(tidyr)
 library(plotly)
-
+library(GGally)
 osis<-path.expand("E:/projects/kaggle/osic-pulmonary-fib/osic-pulmonary-fibrosis-progression/")
-setwd(osis)
+#setwd(osis)
 
 trd<-read.csv("train.csv")
 ted<-read.csv("test.csv")
@@ -36,11 +38,11 @@ ted<-read.csv("test.csv")
 
 
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 head(trd)
 head(ted)
-
+ggpairs(trd %>% dplyr::select(!Patient), aes(color = SmokingStatus))
 
 ```
 
@@ -135,7 +137,8 @@ fig
 
 
 ```{r}
-head(ted)
+head(ted)x: 699y: 708z: −3024
+
 pc<-unique(trd$Patient)
 plot_ly(trd, x=~Weeks, y=~FVC, type = "scatter", mode= "lines", color = ~ Patient)
 
@@ -147,9 +150,6 @@ trd[first,]
 
 ```
 ```{r}
-invalids<-"ID00011637202177653955184"   #https://www.kaggle.com/rashmibanthia/corrupt-files
-tdir<-paste0(osis,"/train")
-dd<-lis.files(dir)
 
 
 ```
@@ -215,7 +215,6 @@ lets make plots
 ```
 ```{r}
 
-dd<-list.files(osistrain)
 x<-dd[1];index=5
   path<-file.path(osistrain,x)
   s<-readDICOM(path)

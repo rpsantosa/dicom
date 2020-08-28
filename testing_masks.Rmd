@@ -1,10 +1,12 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 T
-```{r}
+```{r message=FALSE}
 library(oro.dicom)
 library(tidyverse)
 library(plotly)
@@ -38,6 +40,12 @@ dd <- setdiff(dd,invalids)
 x=dd[1]
 
 
+
+
+
+```
+
+```{r message=FALSE, warning=FALSE}
 read_x<-function(x,thr){
   path<-file.path(osistrain,x)
     s<-readDICOM(path)
@@ -56,27 +64,38 @@ read_x<-function(x,thr){
       return(ss[[index]])
     }
     so<-lapply(1:length(ss),fo)
-    return(so)
+   # convert to imager and rotate. return(so)
+    conv<-function(x){
+      out<- x %>% as.cimg %>% imrotate(angle = -90)
+       return(out)
+    }
+    out<-lapply(so,conv)
 }
-#so<-read_x(x,-2000)
 
-
-
-```
-
-```{r}
-x<-dd[1]
 so<-read_x(x,-2000)
-img<-so[[18]]
+liply(so[17:22],threshold,"x") %>% plot# apply func and append
 
-im<-as.cimg( img ) %>% imrotate(angle=-90)
-plot(im)
-
+im<-so[[18]]
 
 ```
 
-```{r}
 
+
+
+How many files are there by patient?
+```{r message=FALSE, warning=FALSE}
+nf<-function(x){
+  p<-file.path(osistrain,x)
+  return(length(list.files(p)))
+}
+nfs<-sapply(dd,nf)
+nfs
+summary(nfs)
+```
+
+I really need an algo to select imgs
+
+```{r}
 d <- as.data.frame(im)
 ##Subsamble, fit a linear model
 #m <- sample_n(d,1e4) %>% lm(value ~ x*y,data=.) 
@@ -99,24 +118,115 @@ m <- d %>% lm(value ~ x*y,data=.)
 
 ##Correct by removing the trend
 im.c <- im-predict(m,d)
-out <- threshold(im.c)
+out <- threshold(im.c) %>% shrink(0)
 
 layout(t(1:2))
 plot(out)
 plot(im)
 ```
 ```{r}
+
+plotq<-function(im){
+  px <- (isoblur(im,4)  > .5 ) %>% clean(5) %>% imager::fill(7)
+  
+  
+#    out<-threshold(im,"auto")
+# out <- clean(out,5) %>% imager::fill(7)
+  
+  plot(im)
+  highlight(px)
+  #Grow by 5 pixels
+  # grow(px,px.circle(10)) %>% highlight(col="green")
+  #Shrink by 5 pixels
+  # shrink(px,5) %>% highlight(col="blue")
+  
+  #Compute bounding box
+  bbox(px) %>% highlight(col="yellow")
+}
+  plotq(im)
+  
+```
+```{r}
+out<-threshold(im,"auto")
+out <- clean(out,10) %>% imager::fill(7) %>% shrink(10)
+layout(t(1:2))
+plot(im)
+highlight(out)
+plot(out)
+
+
+```
+```{r}
+
+layout(t(1:2))
+out<- 1- threshold(im,"auto")
+out %>% plot
+plot(out %>% clean(2))
+
+m<-1- (out %>% clean(2))
+plot(im)
+plot(m)
+
+
+
+out <- clean(m,20) %>% shrink(2)
+layout(t(1:2))
+plot(im)
+highlight(out)
+plot(out)
+
+
+
+plot((!out) * im) #== plot(im * (out==0))
+```
+
+
+
+# Liked this division
+```{r}
+  pp<-function(im){
+
+  par(mar = c(0,0,0,0),ann=F)
+  layout(t(1:5))
+  out<- 1- threshold(im,"auto")
+  #out %>% plot
+  #plot(out %>% clean(2))
+  
+  m<-1- (out %>% clean(2))
+  plot(im)
+  plot(m)
+  
+  
+  
+  out <- clean(m,20) %>% shrink(2)
+  plot(im)
+  highlight(out)
+  plot(out)
+  plot((!out) * im) #== plot(im * (out==0))<-function(im){
+    
+  
+  
+}
+
+```
+
+```{r}
+walk(so,pp)
+```
+
+
+```{r}
+
+
 pp<-function(x){
-img<-so[[x]] %>% 
-  as.cimg %>%
-  imrotate(angle=-90)
+  img<-so[[x]]
   plot(threshold(img),axes=F)
-  plot(img,axes=F)
+  plotq(img)
 }
 par(mar = c(0,0,0,0))
 #par(mai = c(0,0,0,0))
 layout(matrix(1:24,ncol=6, byrow=F))
-map(1:12,pp)
+walk(1:12,pp)
 
 
 ```
@@ -125,7 +235,7 @@ map(1:12,pp)
 par(mar = c(0,0,0,0))
 #par(mai = c(0,0,0,0))
 layout(matrix(1:24,ncol=6, byrow=T))
-map(1:12,pp)
+walk(1:12,pp)
 
 ```
 
@@ -133,27 +243,32 @@ map(1:12,pp)
 par(mar = c(0,0,0,0))
 #par(mai = c(0,0,0,0))
 layout(matrix(1:24,ncol=6, byrow=T))
-map(13:24,pp)
+walk(13:24,pp)
 
 ```
 ```{r}
- a<-data.table(so=so[5:10],i=1:length(so[5:10]))
- fig<-a %>% plot_ly(
-            z = ~ so,
-            #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
-            colors=pal,
-            type = "heatmapgl",
-            frame = ~ i
-            ) %>%
-     animation_slider()
-
+# pal <- colorRamp(c("black","white"))
+# 
+#  a<-data.table(so=so[5:10],i=1:length(so[5:10]))
+#  fig<-a %>% plot_ly(
+#             z = ~ so,
+#             #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
+#             colors=pal,
+#             type = "heatmapgl",
+#             frame = ~ i
+#             ) %>%
+#      animation_slider()
+# 
 
 
 ```
 
 ```{r}
+
+pal <- colorRamp(c("black","white"))
+
  plot_ly(
-            z = ~ so[[1]],
+            z = ~ as.matrix(so[[18]] %>% imrotate(90)),
             #colorscale = list(c(0,0.5,1),c("blue", "white", "red")),
             colors=pal,
             type = "heatmapgl"
@@ -202,7 +317,7 @@ bbox(px) %>% highlight(col="yellow")
 box<-bbox(px)
 ima<-im
 ima[!box]<-F
-th<-threshold(ima)
+th<-threshold(ima)%>% clean(7) %>% imager::fill(7)
 plot(th)
 #ima[box]<-NA
 #plot(ima)
@@ -278,21 +393,114 @@ plot(s)
 
 ```{r}
 ff <- FFT(im)
+layout(t(1:2))
+plot(ff$real,main="Real")
+plot(ff$imag,main="Im")
 ffp <- sqrt(ff$real^2+ff$imag^2) 
 summary(ffp)
 s<-scale(as.matrix(ffp)) %>% as.cimg
-ff$real[s<0]<-F   #as.cimg (get.locations(s,function(x)x < 0))
-ff$imag[s<0]<-F
+ff$real[s< 1]<-F   #as.cimg (get.locations(s,function(x)x < 0))
+ff$imag[s< 1]<-F
+
+plot(ff$real,main="Real after filter")
+plot(ff$imag,main="Im after filter")
 fim<-FFT(ff$real,ff$imag,inverse = T)
-layout(t(1:2))
+layout(t(1:3))
 plot(im)
-plot(fim$real)
+plot(fim$real,main="FFT filtered real")
+plot(fim$imag,main="FFT filtered imag")
+
 par(mar = c(0,0,0,0))
 layout(t(1:2))
 plot(threshold(im))
-plot(threshold(fim$real))
+plot(threshold(fim$real),main= "FFT real")
+
+
 ```
+Now, high frequencies
+
+```{r}
+ff <- FFT(im)
+layout(t(1:2))
+plot(ff$real,main="Real")
+plot(ff$imag,main="Im")
+ffp <- sqrt(ff$real^2+ff$imag^2) 
+summary(ffp)
+s<-scale(as.matrix(ffp)) %>% as.cimg
+ff$real[s> 15]<-F   #as.cimg (get.locations(s,function(x)x < 0))
+ff$imag[s> 15]<-F
+
+plot(ff$real,main="Real after filter")
+plot(ff$imag,main="Im after filter")
+fim<-FFT(ff$real,ff$imag,inverse = T)
+layout(t(1:3))
+plot(im)
+plot(fim$real,main="FFT filtered real")
+plot(fim$imag,main="FFT filtered imag")
+
+par(mar = c(0,0,0,0))
+layout(t(1:2))
+plot(threshold(im))
+plot(threshold(fim$real),main= "FFT real")
+```
+
 very low difference
+lets make more filters 
+
+```{r}
+layout(t(1:2))
+ fim$real %>% threshold %>% clean(15) %>% imager::fill(5 ) %>% plot
+ im %>% plot
+
+ 
+ 
+```
+```{r}
+layout(t(1:2))
+ im %>% threshold %>% clean(20) %>% imager::fill(5 ) %>% plot
+ im %>% plot
+
+ 
+
+
+```
+This is a lot worse... lets filter in a nicer way
+```{r}
+filterbones<-function(im){
+  px <- (isoblur(im,4)  > .5 ) %>% clean(5) %>% grow(4) %>% imager::fill(15)
+  # plot(im)
+  # highlight(px)
+  return(px)
+}
+filterbones(im)
+```
+
+
+```{r}
+
+
+ffts<-function(im,lim,cl,fi ){
+  bones<-filterbones(im)
+  ff <- FFT(im)
+  ffp <- sqrt(ff$real^2+ff$imag^2) 
+  s<-scale(as.matrix(ffp)) %>% as.cimg
+  ff$real[s< lim]<-F   #as.cimg (get.locations(s,function(x)x < 0))
+  ff$imag[s< lim]<-F
+  fim<-FFT(ff$real,ff$imag,inverse = T)
+
+  par(mar = c(0,0,0,0))
+   layout(t(1:2))
+   nobones<-fim$real * (!bones)
+   nobones %>% threshold %>% clean(cl) %>% imager::fill(fi ) %>% plot
+   nobones %>% plot
+
+}
+ffts(im,1,20,10)
+
+```
+
+
+
 
 
 Lets denoise and etc:
@@ -443,28 +651,6 @@ delta
 
 ```
 
-```{r}
-fp<-FixedPoint(f <- function(x) x/2,3)
-
-
-expandStrong <- function(ws)
-    {
-        overlap <- grow(ws$strong,3) & ws$weak
-        ws$strong[overlap] <- TRUE
-        ws$weak[overlap] <- FALSE
-        ws
-    }
-
-
-#hystFP is a new function that will call expandStrong repeatedly until
-#the weak and strong sets don't change anymore
-out <- list(strong=strong,weak=weak) 
-hystFP <- FixedPoint(expandStrong,Inputs=out)
-
-#Call hystFP
-
-
-```
 
 didnt worked
 
@@ -494,6 +680,35 @@ Finally we need to go through the list of seed pixels, and apply bucket fill eve
 library(purrr)
 add <- function(l) reduce(l,function(acc,item) acc+item,.init=0)
 add(1:3) #equals sum(1:3)
+
+```
+
+```{r}
+parrots<-im
+plot(parrots)
+points(180,229,col="red")
+px.flood(parrots,180,229,sigma=.1) %>% highlight
+#Higher tolerance
+px.flood(parrots,180,229,sigma=.14) %>% highlight(col="darkred")
+#Different initial point
+px.flood(parrots,180,229,sigma=.1) %>% highlight(col="blue")
+```
+lets print some 3d part
+```{r}
+toSide<-function(im,ll=128){
+   ln<- im %>% as.matrix
+   return(ln[,ll])
+}
+#toSide(so[[1]])
+toSides<-function(so,ll=128){
+  la<-sapply(so,toSide,ll=ll) %>% t %>% 
+  as.cimg %>% resize(size_x = 512, size_y = 512) %>% imrotate(90)
+  return(la)
+}
+v<-seq(50,450,50)
+lsides<-lapply(v,FUN = toSides,so=so)
+imappend(lsides,"x") %>% plot
+
 
 ```
 

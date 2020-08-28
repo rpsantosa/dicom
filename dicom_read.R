@@ -184,7 +184,7 @@ printimg<-function(x){
   ct.int   <- unique(extractHeader(s$hdr, "RescaleIntercept")) 
   Ct.n<- extractHeader(s$hdr, "InstanceNumber")
   ss <- lapply(s$img, function(x) x*ct.slope + ct.int) 
-  ff<-function(x){x [ x < 0 ]<- NA;return(x)}
+  #ff<-function(x){x [ x < 0 ]<- NA;return(x)}
   # trim background
   ss<-  lapply(ss,function(x){x[x< -2000]<-NA;return(x)})
   #reorder:
@@ -196,38 +196,36 @@ printimg<-function(x){
   #for(i in 1:length(s)){plot(raster(s[[i]]),col= hcl.colors(64,"Grays"))}
   
   # now the magic happens
-  img <- image_graph(600, 600, res = 96)
+  img <- image_graph(512, 512)
   out <- lapply(s, function(x){
-    # p <- ggplot(data, aes(gdpPercap, lifeExp, size = pop, color = continent)) +
-    #   scale_size("population", limits = range(gapminder$pop)) + geom_point() + ylim(20, 90) + 
-    #   scale_x_log10(limits = range(gapminder$gdpPercap)) + ggtitle(data$year) + theme_classic()
-    # print(p)
     ii<-raster(x)
     plot(ii,col= hcl.colors(64,"Grays"))
     
   })
   dev.off()
-  animation <- image_animate(img, fps = 2, optimize = TRUE)
+  animation <- img %>%
+    image_morph() %>%
+    image_animate( fps = 1, optimize = TRUE)
   print(animation)
   image_write(animation,paste0(x,".gif"))
   
   #plot(img,col= hcl.colors(64,"Grays"))
 }    
-cores = detectCores()-1
-cl = makeCluster(cores)
-registerDoParallel(cl)
-r<-foreach(dd[1:2], .combine=cbind,.packages=c('coreCT',"oro.dicom","magick","raster")
-) %dopar% {
-  printimg(dd)
-}
-stopCluster(cl)
-
-
-a<-convertDir(path)
-
-HUfreq <- coreHist(path)
-names(HUfreq)
-HUfreq$splits
+# cores = detectCores()-1
+# cl = makeCluster(cores)
+# registerDoParallel(cl)
+# r<-foreach(dd[1:2], .combine=cbind,.packages=c('coreCT',"oro.dicom","magick","raster")
+# ) %dopar% {
+#   printimg(dd)
+# }
+# stopCluster(cl)
+# 
+# 
+# a<-convertDir(path)
+# 
+# HUfreq <- coreHist(path)
+# names(HUfreq)
+# HUfreq$splits
 #-----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
